@@ -117,8 +117,7 @@ class Trainer:
             # print(self.monitors[out_layer].get('s').t())
 
             if normalize_weight:
-                for c in self.net_model.network.connections:
-                    self.net_model.network.connections[c].normalize()
+                self.net_model.network.normalize_weights()
             # Optionally plot various simulation information.
             if plot:
                 spike_ims, spike_axes = assembly_plot(self.monitors, spike_ims, spike_axes)

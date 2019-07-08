@@ -62,5 +62,8 @@ class FeedForwardNetwork(Network):
             self.add_connection(Connection(source=self.layers[key[0]], target=self.layers[key[1]], w=w, update_rule=NoOp,
                                            nu=nu, wmin=wmin, wmax=wmax, norm=norm), source=key[0], target=key[1])
 
-
-
+    def normalize_weights(self):
+        """
+        Normalize the connection weights from 'H' to 'Y'
+        """
+        self.connections[('H', 'Y')].normalize()

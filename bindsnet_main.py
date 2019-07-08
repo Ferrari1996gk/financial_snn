@@ -18,14 +18,14 @@ gpu = False
 print_interval = 10; plot = False
 # The parameters to tune.
 window = 1
-n_neurons = 64; test_percent = 0.7; n_total = 20000
-epoch = 6
+n_neurons = 64; test_percent = 0.7; n_total = 10000
+epoch = 1
 exc = 0.5; inh = 1.0; time = 6; dt = 1.0
 method = "poisson"
 
 # Intra-day high frequency data
 # For data pre-processing
-new_mean = 60.0
+new_mean = 70.0
 new_std = 10.0
 data_path = './data/201706/Trades/CME.20170531-20170601.F.Trades.382.CL.csv.gz'
 raw_model_data, dominant = get_model_data(data_path=data_path, data_type='tensor', length=n_total)
@@ -54,7 +54,7 @@ out_layer = 'Y'
 net = MultiLayerModel(n_inpt=window, n_neurons=n_neurons, n_output=1, dt=dt, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512)
 print('MultiLayerModel, hidden size = %d!' % n_neurons)
 ex = Trainer(net, time, print_interval=print_interval)
-before = ex.net_model.network.connections[('H', 'Y')].w.clone().numpy()
+before = ex.net_model.network.connections[('X', 'H')].w.clone().numpy()
 print(before)
 for i in range(epoch):
     print('Training epoch number: %d' % (i + 1))
@@ -64,7 +64,7 @@ for i in range(epoch):
     plot_result(data=dominant.iloc[:n_train], spike_record=train_record, display_time=10, file_name='./images/epoch'+str(i)+'.png',
                 plot_every=True, epoch=i)
     ex.net_model.network.reset_()
-middle = ex.net_model.network.connections[('H', 'Y')].w.clone().numpy()
+middle = ex.net_model.network.connections[('X', 'H')].w.clone().numpy()
 print(middle)
 
 ##############The following is for testing####################################################
@@ -74,5 +74,7 @@ test_data_loader = bindsnet_load_data(dataset=test_data, time=time, dt=dt, metho
 test_record = ex.testing(test_data_loader, n_test, out_layer=out_layer, plot=plot)
 plot_result(data=dominant.iloc[n_train:n_train+n_test], spike_record=test_record, display_time=10, file_name=None,
                 plot_every=True)
-after = ex.net_model.network.connections[('H', 'Y')].w.clone().numpy()
+after = ex.net_model.network.connections[('X', 'H')].w.clone().numpy()
 print(after)
+print(before == middle)
+print(middle == after)
