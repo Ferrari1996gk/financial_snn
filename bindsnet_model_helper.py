@@ -38,9 +38,9 @@ class FeedForwardNetwork(Network):
 
         self.add_layer(Input(n=self.n_inpt, traces=True, trace_tc=5e-2), name='X')
         self.add_layer(LIFNodes(n=self.n_neurons, traces=True, rest=-65.0, reset=-65.0, thresh=-52.0, refrac=5,
-                                decay=1e-2, trace_tc=5e-2), name='H')
+                                decay=2, trace_tc=5e-2), name='H')
         self.add_layer(LIFNodes(n=1, traces=True, rest=-65.0, reset=-65.0, thresh=-52.0, refrac=5,
-                                decay=1e-2, trace_tc=5e-2), name='Y')
+                                decay=2, trace_tc=5e-2), name='Y')
 
         w1 = 0.3 * torch.rand(self.n_inpt, self.n_neurons)
         w2 = 0.3 * torch.rand(self.n_neurons, self.n_output)

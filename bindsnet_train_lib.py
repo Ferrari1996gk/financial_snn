@@ -63,7 +63,7 @@ def plot_result(data, spike_record, n=6, display_time=10, file_name=None, plot_e
     plt.close(fig)
 
 
-def plot_aspike(data, spike_index, plot_range=1000, display_time=1, file_name=None):
+def plot_aspike(data, spike_index, plot_range=500, display_time=1, file_name=None):
     """
     Plot one single spike and the nearby price chart.
     :param data: pd.DataFrame containing all the price data(EntryPrice and EntrySize column), and integer index.
@@ -113,6 +113,9 @@ class Trainer:
 
             # Add to spikes recording.
             self.train_spike_record[i] = self.monitors[out_layer].get('s')
+            if self.train_spike_record[i].sum() > 0:
+                print(self.train_spike_record[i])
+                self.net_model.network.reset_()
             # print(self.monitors[out_layer].get('s'))
             # print(self.monitors[out_layer].get('s').t())
 
@@ -150,6 +153,9 @@ class Trainer:
             self.net_model.run(inpts=inpts, time=self.time)
             # Add to spikes recording.`
             self.test_spike_record[i] = self.monitors[out_layer].get('s')
+            if self.test_spike_record[i].sum() > 0:
+                # print(self.test_spike_record[i])
+                self.net_model.network.reset_()
 
             # Optionally plot various simulation information.
             if plot:
