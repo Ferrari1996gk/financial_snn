@@ -11,7 +11,7 @@ from data_process import IntradayDataHandle
 from bindsnet.encoding import poisson_loader, bernoulli_loader
 
 
-def get_model_data(data_path, data_type='tensor', length=None):
+def get_model_data(data_path, data_type='price', length=None):
     # Utilise DataHandle class to get raw_model_data.
     print("Begin to prepare raw model data from excel!")
     ex = IntradayDataHandle(data_path=data_path)
@@ -25,7 +25,7 @@ def train_test_split(raw_model_data, test_percent=None, n_train=None, n_test=Non
                      normal=False, new_mean=None, new_std=None):
     """
     Split the dataset into training set and testing set. Also transform the numpy array to torch Tensor.
-    :param raw_model_data: The original data, numpy.array
+    :param raw_model_data: The original data, torch.Tensor
     :param test_percent: The percentage of testing set.
     :param n_train: Number of train set instances. If given, n_test must be given at the same time.
     :param n_test: Number of testing set instances.
@@ -69,7 +69,7 @@ class PreProcessor:
     def apply(self, data, new_mean=None, new_std=None):
         """
         Normalize the data to a certain mean and standard deviation.
-        :param data: torch.Tensor, 1 - dimension.
+        :param data: torch.Tensor, 1-dimension.
         """
         if new_mean is not None:
             self.new_mean = new_mean

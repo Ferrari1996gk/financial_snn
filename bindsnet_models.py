@@ -7,7 +7,7 @@
 # @Software: PyCharm
 import torch
 import numpy as np
-from bindsnet_model_helper import FeedForwardNetwork
+from bindsnet_model_helper import FeedForwardNetwork, DoubleInputNetwork
 from bindsnet.models import DiehlAndCook2015, TwoLayerNetwork, DiehlAndCook2015v2
 from bindsnet.network.monitors import Monitor
 
@@ -106,7 +106,7 @@ class DiehlCookModel2015Version2(BaseModel):
 
 
 class MultiLayerModel(BaseModel):
-    def __init__(self, n_inpt, n_neurons=64, n_output=1, dt=1.0, initial_w=0.1, wmin=0.0, wmax=1.0, nu=(1e-4, 1e-2), norm=78.4):
+    def __init__(self, n_inpt, n_neurons=64, n_output=1, dt=1.0, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512):
         self.n_inpt = n_inpt
         self.n_neurons = n_neurons
         self.n_output = n_output
@@ -125,6 +125,29 @@ class MultiLayerModel(BaseModel):
     def create_monitors(self, time):
         monitors = {}
         for layer in set(self.network.layers) - {'X'}:
+            monitors[layer] = Monitor(self.network.layers[layer], state_vars=['s'], time=time)
+            self.network.add_monitor(monitors[layer], name='%s_monitor' % layer)
+        return monitors
+
+
+class DoubleInputModel(BaseModel):
+    def __init__(self, n_neurons=64, n_output=1, dt=1.0, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512):
+        self.n_neurons = n_neurons
+        self.n_output = n_output
+        self.network = DoubleInputNetwork(n_neurons=n_neurons, n_output=n_output, dt=dt, initial_w=initial_w, wmin=wmin,
+                                          wmax=wmax, nu=nu, norm=norm)
+        print('Model layers: ')
+        print(self.network.layers.keys())
+
+    def run(self, inpts, time, clamp=None):
+        if clamp is not None:
+            self.network.run(inpts=inpts, time=time, clamp=clamp)
+        else:
+            self.network.run(inpts=inpts, time=time)
+
+    def create_monitors(self, time):
+        monitors = {}
+        for layer in set(self.network.layers) - {'X1', 'X2'}:
             monitors[layer] = Monitor(self.network.layers[layer], state_vars=['s'], time=time)
             self.network.add_monitor(monitors[layer], name='%s_monitor' % layer)
         return monitors

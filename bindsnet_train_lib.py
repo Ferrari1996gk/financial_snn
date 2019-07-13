@@ -63,7 +63,7 @@ def plot_result(data, spike_record, n=6, display_time=10, file_name=None, plot_e
     plt.close(fig)
 
 
-def plot_aspike(data, spike_index, plot_range=500, display_time=1, file_name=None):
+def plot_aspike(data, spike_index, plot_range=100, display_time=1, file_name=None):
     """
     Plot one single spike and the nearby price chart.
     :param data: pd.DataFrame containing all the price data(EntryPrice and EntrySize column), and integer index.
@@ -84,9 +84,10 @@ def plot_aspike(data, spike_index, plot_range=500, display_time=1, file_name=Non
 
 
 class Trainer:
-    def __init__(self, net_model, time, print_interval=10):
+    def __init__(self, net_model, time, single_in=True, print_interval=10):
         self.net_model = net_model
         self.time = time
+        self.single_in = single_in
         self.print_interval = print_interval
         self.n_output = self.net_model.n_output
         # Record spikes during the simulation.
@@ -94,7 +95,7 @@ class Trainer:
         self.test_spike_record = torch.zeros([])  # We will reinitialize test_spike_record in self.testing function.
         self.monitors = self.net_model.create_monitors(time=self.time)
 
-    def training(self, train_data_loader, n_train, out_layer="Ae", plot=False, normalize_weight=True):
+    def training(self, train_data_loader, n_train, out_layer="Y", plot=False, normalize_weight=True):
         self.train_spike_record = torch.zeros(n_train, self.n_output, self.time)
         print('Begin training.\n')
         start = datetime.now()
@@ -107,7 +108,10 @@ class Trainer:
 
             # Get next input sample.
             sample = next(train_data_loader)
-            inpts = {'X': sample}
+            if self.single_in:
+                inpts = {'X': sample}
+            else:
+                inpts = {'X1': sample[:, 0].view(-1, 1), 'X2': sample[:, 1].view(-1, 1)}
             # Run the network on the input.
             self.net_model.run(inpts=inpts, time=self.time)
 
@@ -130,7 +134,7 @@ class Trainer:
         print('Training complete.\n')
         return self.train_spike_record.clone()
 
-    def testing(self, test_data_loader, n_test, out_layer="Ae", plot=False):
+    def testing(self, test_data_loader, n_test, out_layer="Y", plot=False):
         # Important: set the network to testing mode.
         self.net_model.network.learning = False
         # self.net_model.network.to_testing_mode()  # Alternative method.
@@ -147,20 +151,22 @@ class Trainer:
 
             # Get next input sample.
             sample = next(test_data_loader)
-            inpts = {'X': sample}
+            if self.single_in:
+                inpts = {'X': sample}
+            else:
+                inpts = {'X1': sample[:, 0], 'X2': sample[:, 1]}
 
             # Run the network on the input.
             self.net_model.run(inpts=inpts, time=self.time)
             # Add to spikes recording.`
             self.test_spike_record[i] = self.monitors[out_layer].get('s')
             if self.test_spike_record[i].sum() > 0:
-                # print(self.test_spike_record[i])
+                print(self.test_spike_record[i])
                 self.net_model.network.reset_()
 
             # Optionally plot various simulation information.
             if plot:
                 pspike_ims, spike_axes = assembly_plot(self.monitors,  spike_ims, spike_axes)
-
 
         print('Progress: %d / %d (%s time)\n' % (n_test, n_test, datetime.now() - start))
         print('Testing complete.\n')

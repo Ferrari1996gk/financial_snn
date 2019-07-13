@@ -11,9 +11,10 @@ import matplotlib.pyplot as plt
 import torch
 
 class IntradayDataHandle:
-    def __init__(self, data_path):
+    def __init__(self, data_path, vwap_window=10):
         self.raw_data = pd.read_csv(data_path, compression='gzip', skiprows=1)
-        self.dominant = self.get_dominant()
+        # self.dominant = self.get_dominant()
+        self.dominant = self.get_dominant_vwap(vwap_window=vwap_window)
 
     def get_dominant(self):
         """
@@ -31,27 +32,46 @@ class IntradayDataHandle:
         print('The dominant contract is: %s' % dominant_contract)
         dominant = self.raw_data.loc[self.raw_data.Symbol == dominant_contract]
         return dominant.reset_index(drop=True)
-
-    def get_price_series(self, data_type='tensor', length=None):
+    
+    def get_dominant_vwap(self, vwap_window=10):
         """
-        :param type: if 'torch', return torch.Tensor; if series, return pd.Series.
+        Calculate the vwap price for dominant contract.
+        :param vwap_window: The window length for calculating vwap.
+        :return: pd.DataFrame, having vwap price in column 'EntryPrice'.
+        """
+        dominant = self.get_dominant()
+        tmp_df = dominant[['EntryPrice', 'EntrySize']].copy()
+        tmp_df['group_ind'] = tmp_df.index // vwap_window
+        tmp_df['money'] = tmp_df.EntryPrice * tmp_df.EntrySize
+
+        df = tmp_df.groupby('group_ind').sum()
+        df['EntryPrice'] = df['money'] / df['EntrySize']
+        return df
+    
+    def get_price_series(self, data_type='price', length=None):
+        """
+        :param data_type: if 'price', return price data; if 'volume', return volume data.
         :param length: If not None, return the first length entries.
-        Return the entry price in the dominant contracts.
+        Return the entry price or volume in the dominant contracts, with torch.Tensor form.
         """
         if length is None:
             length = len(self.dominant)
-        if data_type == 'series':
-            return self.dominant.EntryPrice.iloc[:length]
-        else:
+        if data_type == 'price':
             return torch.Tensor(self.dominant.EntryPrice.iloc[:length].values)
+        elif data_type == 'volume':
+            return torch.Tensor(self.dominant.EntrySize.iloc[:length].values)
+        else:
+            raise ValueError("Unknown data type!!!")
 
 
 if __name__ == '__main__':
-    data_path = './data/201706/Trades/CME.20170601-20170602.F.Trades.382.CL.csv.gz'
+    data_path = './data/201706/Trades/CME.20170531-20170601.F.Trades.382.CL.csv.gz'
     ex = IntradayDataHandle(data_path)
+    dominant = ex.dominant
+    volume = ex.get_price_series(data_type='volume', length=1000)
     fig, ax = plt.subplots()
-    ax.plot(ex.dominant.EntryPrice.iloc[:5000] - 4780)
-    # print(ex.dominant.columns)
-    ax.bar([i for i in range(5000)], ex.dominant.EntrySize.iloc[:5000])
+    ax.plot(dominant.EntryPrice.iloc[:8000] - 4780)
+    # print(dominant.columns)
+    ax.bar([i for i in range(8000)], ex.dominant.EntrySize.iloc[:8000])
     plt.pause(5)
     plt.close(fig)
