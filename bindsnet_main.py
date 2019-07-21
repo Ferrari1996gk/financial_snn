@@ -3,9 +3,13 @@
 Created on Sat Apr  6 15:02:14 2019
 @author: kang
 """
+import os
+import pickle
 import torch
-from bindsnet_data_lib import get_model_data, train_test_split, bindsnet_load_data
-from bindsnet_train_lib import Trainer, plot_result
+import numpy as np
+import pandas as pd
+from bindsnet_data_lib import get_model_data, train_test_split, bindsnet_load_data, get_pct_quantile
+from bindsnet_train_lib import Trainer, plot_result, spike_accuracy, reversion_strategy
 from bindsnet_models import DiehlCookModel2015Version2, DiehlCookModel2015, MultiLayerModel, DoubleInputModel
 
 gpu = False
@@ -18,8 +22,8 @@ gpu = False
 print_interval = 10; plot = False
 # The parameters to tune.
 window = 1
-n_neurons = 64; test_percent = 0.2; n_total = None
-epoch = 12
+n_neurons = 64; test_percent = 0.1; n_total = None
+epoch = 8
 exc = 0.5; inh = 1.0; time = 6; dt = 1.0
 method = "poisson"
 single_in = False
@@ -27,69 +31,104 @@ hidden = 'H' if single_in else 'H1'
 
 # Intra-day high frequency data
 # For data pre-processing
-new_mean = 40
+new_mean = 45
 new_std = 20.0
-data_path = './data/201705/Trades/CME.20170504-20170505.F.Trades.382.CL.csv.gz'
-raw_model_data, dominant = get_model_data(data_path=data_path, data_type='price', length=n_total)
-raw_model_data = torch.cat((torch.Tensor([0]), raw_model_data[1:] - raw_model_data[:-1]))
+# data_path = './data/201705/Trades/CME.20170524-20170525.F.Trades.382.CL.csv.gz'
 
-train_data, test_data = train_test_split(raw_model_data, test_percent=test_percent, n_train=None, n_test=None,
-                                         normal=True, new_mean=new_mean, new_std=new_std)
+commodity = 'CL'
+directory = './data/201705/Trades/'
+file_list = os.listdir(directory)
+data_list = [x for x in file_list if x[-9:-7] == commodity]
+print(data_list)
+for file_name in data_list:
+    date_str = file_name[13:21]
+    data_path = directory + file_name
 
-train_data = train_data.repeat(window, 1).transpose(0, 1)
-test_data = test_data.repeat(window, 1).transpose(0, 1)
+    raw_model_data, dominant = get_model_data(data_path=data_path, data_type='price', length=n_total)
+    quantile = get_pct_quantile(dominant, q=0.5)
+    print('Baseline mean return for spike: %.8f' % quantile)
 
-if not single_in:
-    train_data1, test_data1 = train_test_split(-1 * raw_model_data, test_percent=test_percent, n_train=None, n_test=None,
+    raw_model_data = torch.cat((torch.Tensor([0]), raw_model_data[1:] - raw_model_data[:-1]))
+
+    train_data, test_data = train_test_split(raw_model_data, test_percent=test_percent, n_train=None, n_test=None,
                                              normal=True, new_mean=new_mean, new_std=new_std)
 
-    train_data1 = train_data1.repeat(window, 1).transpose(0, 1)
-    test_data1 = test_data1.repeat(window, 1).transpose(0, 1)
-    train_data = torch.cat([train_data, train_data1], dim=1)
-    test_data = torch.cat([test_data, test_data1], dim=1)
+    train_data = train_data.repeat(window, 1).transpose(0, 1)
+    test_data = test_data.repeat(window, 1).transpose(0, 1)
 
-print(train_data.shape)
-print(train_data[train_data < 0])
-train_data[train_data < 0] = 0
-test_data[test_data < 0] = 0
+    if not single_in:
+        train_data1, test_data1 = train_test_split(-1 * raw_model_data, test_percent=test_percent, n_train=None, n_test=None,
+                                                   normal=True, new_mean=new_mean, new_std=new_std)
 
-n_train = len(train_data)
-# Build network model.
-out_layer = 'Y'
-# net = DiehlCookModel2015(n_inpt=window, n_neurons=n_neurons, exc=exc,
-#         inh=inh, dt=dt, nu=[0, 0.25], wmin=0, wmax=5, norm=100, theta_plus=0.02)
-# print('DiehlCook2015 model!')
-# net = DiehlCookModel2015Version2(n_inpt=window, n_neurons=n_neurons, inh=inh, dt=dt, nu=[0.05, 0.05],
-#                                  wmin=0, wmax=5, norm=100, theta_plus=0.2)
-# print('DiehlCook2015 model version 2!')
+        train_data1 = train_data1.repeat(window, 1).transpose(0, 1)
+        test_data1 = test_data1.repeat(window, 1).transpose(0, 1)
+        train_data = torch.cat([train_data, train_data1], dim=1)
+        test_data = torch.cat([test_data, test_data1], dim=1)
 
-# net = MultiLayerModel(n_inpt=window, n_neurons=n_neurons, n_output=1, dt=dt, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512)
-# print('MultiLayerModel, hidden size = %d!' % n_neurons)
-net = DoubleInputModel(n_neurons=n_neurons, n_output=1, dt=dt, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512)
-print('DoubleInputModel, hidden size = %d and %d!' % (n_neurons, n_neurons))
+    print(train_data.shape)
+    print(train_data[train_data < 0])
+    train_data[train_data < 0] = 0
+    test_data[test_data < 0] = 0
 
-ex = Trainer(net, time, single_in=single_in, print_interval=print_interval)
-before = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
-print(before)
-for i in range(epoch):
-    print('Training epoch number: %d' % (i + 1))
-    # Lazily encode data as spike trains.
-    train_data_loader = bindsnet_load_data(dataset=train_data, time=time, dt=dt, method=method)
-    train_record = ex.training(train_data_loader, n_train, out_layer=out_layer, plot=plot, normalize_weight=True)
-    middle = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
-    print(middle)
-    plot_result(data=dominant.iloc[:n_train], spike_record=train_record, display_time=10, file_name='./images/epoch'+str(i)+'.png',
-                plot_every=True, epoch=i)
+    n_train = len(train_data)
+    # Build network model.
+    out_layer = 'Y'
+    # net = DiehlCookModel2015(n_inpt=window, n_neurons=n_neurons, exc=exc,
+    #         inh=inh, dt=dt, nu=[0, 0.25], wmin=0, wmax=5, norm=100, theta_plus=0.02)
+    # print('DiehlCook2015 model!')
+    # net = DiehlCookModel2015Version2(n_inpt=window, n_neurons=n_neurons, inh=inh, dt=dt, nu=[0.05, 0.05],
+    #                                  wmin=0, wmax=5, norm=100, theta_plus=0.2)
+    # print('DiehlCook2015 model version 2!')
+
+    # net = MultiLayerModel(n_inpt=window, n_neurons=n_neurons, n_output=1, dt=dt, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512)
+    # print('MultiLayerModel, hidden size = %d!' % n_neurons)
+    net = DoubleInputModel(n_neurons=n_neurons, n_output=1, dt=dt, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512)
+    print('DoubleInputModel, hidden size = %d and %d!' % (n_neurons, n_neurons))
+
+    ex = Trainer(net, time, single_in=single_in, print_interval=print_interval)
+    before = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
+    print(before)
+    accuracy_record = {}
+    net_value_record = {}
+    for i in range(epoch):
+        print('Training epoch number: %d' % (i + 1))
+        # Lazily encode data as spike trains.
+        train_data_loader = bindsnet_load_data(dataset=train_data, time=time, dt=dt, method=method)
+        train_record = ex.training(train_data_loader, n_train, out_layer=out_layer, plot=plot, normalize_weight=True)
+        middle = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
+        print(middle)
+        plot_result(data=dominant.iloc[:n_train], spike_record=train_record, display_time=10, file_name='./images/epoch'+str(i)+'.png',
+                    plot_every=True, epoch=i)
+        acc = spike_accuracy(data=dominant.iloc[:n_train], spike_record=train_record, base_ret=quantile, window=3)
+        print('Epoch %d, accuracy: ' % i, acc)
+        net_value = reversion_strategy(data=dominant.iloc[:n_train], spike_record=train_record, hold_window=3, window=3)
+        print('Epoch %d, net_value: ' % i, net_value)
+        accuracy_record[i] = acc
+        net_value_record[i] = net_value
+        ex.net_model.network.reset_()
+
+
+    # ############# The following is for testing ####################################################
+    print('Training finished, begin testing!!!!!!')
+    n_test = len(test_data)
+    test_data_loader = bindsnet_load_data(dataset=test_data, time=time, dt=dt, method=method)
+    test_record = ex.testing(test_data_loader, n_test, out_layer=out_layer, plot=plot)
+    plot_result(data=dominant.iloc[n_train: n_train+n_test], spike_record=test_record, display_time=10, file_name='./images/test.png',
+                plot_every=True)
+    acc = spike_accuracy(data=dominant.iloc[n_train: n_train+n_test], spike_record=test_record, base_ret=quantile, window=3)
+    print('Testing accuracy: ', acc)
     ex.net_model.network.reset_()
 
-# ############# The following is for testing ####################################################
-print('Training finished, begin testing!!!!!!')
-n_test = len(test_data)
-test_data_loader = bindsnet_load_data(dataset=test_data, time=time, dt=dt, method=method)
-test_record = ex.testing(test_data_loader, n_test, out_layer=out_layer, plot=plot)
-plot_result(data=dominant.iloc[n_train:n_train+n_test], spike_record=test_record, display_time=10, file_name='./images/test.png',
-                plot_every=True)
-after = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
-print(after)
-print(before == middle)
-print(middle == after)
+    after = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
+    print(after)
+    print(before == middle)
+    print(middle == after)
+    accuracy_df = np.transpose(pd.DataFrame(accuracy_record))
+    print(accuracy_df)
+    for key in net_value_record:
+        print(key, net_value_record[key])
+
+    accuracy_df.to_csv('./accuracy/' + date_str + '.csv', index=False)
+    with open('./strats/' + date_str + '.pkl', 'wb') as f:
+        pickle.dump(net_value_record, f)
+        f.close()

@@ -11,6 +11,16 @@ from data_process import IntradayDataHandle
 from bindsnet.encoding import poisson_loader, bernoulli_loader
 
 
+def get_pct_quantile(dataset, q=0.5):
+    """
+    Compute the q quantile of the percentage return(absolute value) from the vwap price in dataset.
+    :param dataset: pd.DataFrame, contains vwap price in column "EntryPrice".
+    :return: float, the q quantile of the absolute percentage return of the vwap price in dataset.
+    """
+    ret_pct = dataset.EntryPrice.shift(-1) / dataset.EntryPrice - 1
+    return ret_pct.abs().quantile(q)
+
+
 def get_model_data(data_path, data_type='price', length=None):
     # Utilise DataHandle class to get raw_model_data.
     print("Begin to prepare raw model data from excel!")
@@ -41,7 +51,7 @@ def train_test_split(raw_model_data, test_percent=None, n_train=None, n_test=Non
         test_data = model_data[n_train:(n_train + n_test)]
     else:
         assert test_percent is not None, 'A test set percentage is needed. Otherwise give training and testing size!'
-        split = int(len(model_data) * (1 - test_percent))
+        split = round(len(model_data) * (1 - test_percent))
         train_data = model_data[:split]
         test_data = model_data[split:]
 

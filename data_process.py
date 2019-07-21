@@ -65,7 +65,7 @@ class IntradayDataHandle:
 
 
 if __name__ == '__main__':
-    data_path = './data/201706/Trades/CME.20170531-20170601.F.Trades.382.CL.csv.gz'
+    data_path = './data/201705/Trades/CME.20170504-20170505.F.Trades.382.CL.csv.gz'
     ex = IntradayDataHandle(data_path)
     dominant = ex.dominant
     volume = ex.get_price_series(data_type='volume', length=1000)

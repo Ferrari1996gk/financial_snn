@@ -9,7 +9,8 @@ import torch
 import os
 import matplotlib.pyplot as plt
 from datetime import datetime
-from bindsnet.evaluation import all_activity, proportion_weighting, assign_labels
+import numpy as np
+import pandas as pd
 from bindsnet.analysis.plotting import plot_spikes
 
 
@@ -30,6 +31,92 @@ def assembly_plot(monitors, *args):
     return spike_ims, spike_axes
 
 
+def add_spike_column(data, spike_record):
+    """
+    This function is used to copy the data and add a "spike" column to the data, according to spikes in "spike_record".
+    :param data:pd.DataFrame, contains EntryPrize(vwap), and has integer index.
+    :param spike_record: Torch.Tensor, shape: (time_stamps, n_neurons, simulation_time)
+    :return: the dataset with "spike" column, pd.DataFrame.
+    """
+    assert len(data) == spike_record.shape[0], "The data and spikes should have the same length!"
+    dataset = data.copy()
+    spike_series = spike_record.view(len(dataset), -1).sum(dim=-1).clamp(0, 1)
+    dataset['spike'] = spike_series
+    return dataset
+
+
+def reversion_strategy(data, spike_record, hold_window=3, initial_cap=1.0, window=3):
+    """
+    Use the reversion strategy, regard the spike as reversion point.
+    :param data: pd.DataFrame, contains EntryPrize(vwap), and has integer index.
+    :param spike_record: Torch.Tensor, shape: (time_stamps, n_neurons, simulation_time)
+    :param hold_window: The length of each holding period.
+    :param initial_cap: Initial capital of the strategy, default 1; each trade invest "initial_cap" money; no leverage.
+    :param window: The window length to determine long or short for the strategy, default 3.
+    :return: The net value series of the strategy, pd.Series.
+    """
+    dataset = add_spike_column(data=data, spike_record=spike_record)
+    tmp = dataset.loc[dataset.spike == 1]
+    net_value = [initial_cap]
+    ret_series = []
+    for i, ind in enumerate(tmp.index):
+        if ind - window < dataset.index[0] or ind + hold_window > dataset.index[-1]:
+            continue
+        flag = dataset.loc[ind - window: ind - 1, 'EntryPrice'].mean() - dataset.loc[ind, 'EntryPrice']
+        pct_chg = dataset.loc[ind+hold_window, 'EntryPrice'] / dataset.loc[ind, 'EntryPrice'] - 1.0
+        if flag < 0:
+            ret_pct = -1. * pct_chg
+        else:
+            ret_pct = pct_chg
+        ret_series.append(ret_pct)
+        net_value.append(net_value[-1] + initial_cap * ret_pct)
+
+    return pd.Series(net_value, name='net_value')
+
+
+def spike_accuracy(data, spike_record, base_ret, window=3, file_name=None):
+    """
+    To find the percentage of spikes occurring in reversion and momentum respectively.
+    :param data: pd.DataFrame, contains EntryPrize(vwap), and has integer index.
+    :param spike_record: Torch.Tensor, shape: (time_stamps, n_neurons, simulation_time)
+    :param base_ret: The baseline return to distinguish spikes.
+    :param window: The window length to determine whether the price behavior is reversion or momentum, default 3.
+    :param file_name: If not None, save the results to file.
+    :return: dictionary: "reversion_pct", "momentum_pct", "total_num", "spike_num", "ascending", "descending"
+    """
+    dataset = add_spike_column(data=data, spike_record=spike_record)
+    tmp = dataset.loc[dataset.spike == 1]
+    total_num = len(tmp)
+    spike_num = momentum_num = reversion_num = 0.
+    ascending = descending = 0.
+    for i, ind in enumerate(tmp.index):
+        if ind - window < dataset.index[0] or ind + window > dataset.index[-1]:
+            continue
+        # Note that in pandas.DataFrame.loc, both the start and the stop are included
+        ret_after = np.array(dataset.loc[ind+1: ind+window, 'EntryPrice']) / np.array(dataset.loc[ind: ind+window-1, 'EntryPrice']) - 1
+        mean_abs_ret = np.nanmean(np.abs(ret_after))
+        diff1 = dataset.loc[ind - window: ind - 1, 'EntryPrice'].mean() - dataset.loc[ind, 'EntryPrice']
+        diff2 = dataset.loc[ind + 1: ind + window, 'EntryPrice'].mean() - dataset.loc[ind, 'EntryPrice']
+        if diff1 < 0:
+            ascending += 1
+        else:
+            descending += 1
+
+        if mean_abs_ret >= base_ret:
+            spike_num += 1
+            if diff1 * diff2 >= 0:
+                reversion_num += 1
+            else:
+                momentum_num += 1
+
+    acc = {'reversion_pct': reversion_num / spike_num, 'momentum_pct': momentum_num / spike_num,
+           'spike_acc': spike_num / total_num, 'total_num': total_num,
+           'ascending': ascending / total_num, 'descending': descending / total_num}
+    if file_name is not None:
+        pass  # TODO save the results to json file.
+    return acc
+
+
 def plot_result(data, spike_record, n=6, display_time=10, file_name=None, plot_every=True, epoch=0):
     """
     Plot the price chart and plot spikes in the corresponding time.
@@ -37,10 +124,7 @@ def plot_result(data, spike_record, n=6, display_time=10, file_name=None, plot_e
     :param spike_record: Torch.Tensor, shape: (time_stamps, n_neurons, simulation_time)
     :param n: To determine the vertical range of the spikes. (use reciprocal)
     """
-    assert len(data) == spike_record.shape[0], "The data and spikes should have the same length!"
-    dataset = data.copy()
-    spike_series = spike_record.view(len(dataset), -1).sum(dim=-1).clamp(0, 1)
-    dataset['spike'] = spike_series
+    dataset = add_spike_column(data=data, spike_record=spike_record)
     y_len = (dataset.EntryPrice.max() - dataset.EntryPrice.min()) / n
     tmp = dataset.loc[dataset.spike == 1]
     if plot_every:
@@ -63,7 +147,7 @@ def plot_result(data, spike_record, n=6, display_time=10, file_name=None, plot_e
     plt.close(fig)
 
 
-def plot_aspike(data, spike_index, plot_range=100, display_time=1, file_name=None):
+def plot_aspike(data, spike_index, plot_range=30, display_time=1, file_name=None):
     """
     Plot one single spike and the nearby price chart.
     :param data: pd.DataFrame containing all the price data(EntryPrice and EntrySize column), and integer index.
