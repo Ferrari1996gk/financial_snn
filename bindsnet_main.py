@@ -9,8 +9,8 @@ import torch
 import numpy as np
 import pandas as pd
 from bindsnet_data_lib import get_model_data, train_test_split, bindsnet_load_data, get_pct_quantile
-from bindsnet_train_lib import Trainer, plot_result, spike_accuracy, reversion_strategy
-from bindsnet_models import DiehlCookModel2015Version2, DiehlCookModel2015, MultiLayerModel, DoubleInputModel
+from bindsnet_train_lib import Trainer, plot_result, spike_accuracy, reversion_strategy, momentum_strategy
+from bindsnet_models import MultiLayerModel, DoubleInputModel
 
 gpu = False
 # seed = 0
@@ -22,9 +22,9 @@ gpu = False
 print_interval = 10; plot = False
 # The parameters to tune.
 window = 1
-n_neurons = 64; test_percent = 0.1; n_total = None
-epoch = 8
-exc = 0.5; inh = 1.0; time = 6; dt = 1.0
+n_neurons = 64; test_percent = 0.001; n_total = None
+epoch = 6
+time = 6; dt = 1.0
 method = "poisson"
 single_in = False
 hidden = 'H' if single_in else 'H1'
@@ -38,8 +38,11 @@ new_std = 20.0
 commodity = 'CL'
 directory = './data/201705/Trades/'
 file_list = os.listdir(directory)
-data_list = [x for x in file_list if x[-9:-7] == commodity]
+
+# data_list = [x for x in file_list if x[-9:-7] == commodity]
+data_list = ['CME.20170521-20170522.F.Trades.382.CL.csv.gz']
 print(data_list)
+
 for file_name in data_list:
     date_str = file_name[13:21]
     data_path = directory + file_name
@@ -73,12 +76,6 @@ for file_name in data_list:
     n_train = len(train_data)
     # Build network model.
     out_layer = 'Y'
-    # net = DiehlCookModel2015(n_inpt=window, n_neurons=n_neurons, exc=exc,
-    #         inh=inh, dt=dt, nu=[0, 0.25], wmin=0, wmax=5, norm=100, theta_plus=0.02)
-    # print('DiehlCook2015 model!')
-    # net = DiehlCookModel2015Version2(n_inpt=window, n_neurons=n_neurons, inh=inh, dt=dt, nu=[0.05, 0.05],
-    #                                  wmin=0, wmax=5, norm=100, theta_plus=0.2)
-    # print('DiehlCook2015 model version 2!')
 
     # net = MultiLayerModel(n_inpt=window, n_neurons=n_neurons, n_output=1, dt=dt, initial_w=10, wmin=None, wmax=None, nu=(1, 1), norm=512)
     # print('MultiLayerModel, hidden size = %d!' % n_neurons)
@@ -98,14 +95,18 @@ for file_name in data_list:
         middle = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
         print(middle)
         plot_result(data=dominant.iloc[:n_train], spike_record=train_record, display_time=10, file_name='./images/epoch'+str(i)+'.png',
-                    plot_every=True, epoch=i)
+                    plot_every=True, epoch=i) # Change plot_every
         acc = spike_accuracy(data=dominant.iloc[:n_train], spike_record=train_record, base_ret=quantile, window=3)
         print('Epoch %d, accuracy: ' % i, acc)
-        net_value = reversion_strategy(data=dominant.iloc[:n_train], spike_record=train_record, hold_window=3, window=3)
+        net_value = momentum_strategy(data=dominant.iloc[:n_train], spike_record=train_record, hold_window=3, window=3)
         print('Epoch %d, net_value: ' % i, net_value)
         accuracy_record[i] = acc
         net_value_record[i] = net_value
         ex.net_model.network.reset_()
+    # save the model
+    with open('./' + commodity + '_models/' + commodity + '_' + date_str + '_model.pkl', 'wb') as f_out:
+        pickle.dump(ex, f_out)
+        f_out.close()
 
 
     # ############# The following is for testing ####################################################
@@ -119,6 +120,7 @@ for file_name in data_list:
     print('Testing accuracy: ', acc)
     ex.net_model.network.reset_()
 
+    # The following is for examining the weights in the network.
     after = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
     print(after)
     print(before == middle)
@@ -128,7 +130,7 @@ for file_name in data_list:
     for key in net_value_record:
         print(key, net_value_record[key])
 
-    accuracy_df.to_csv('./accuracy/' + date_str + '.csv', index=False)
-    with open('./strats/' + date_str + '.pkl', 'wb') as f:
+    accuracy_df.to_csv('./accuracy/' + commodity + '_' + date_str + '.csv', index=False)
+    with open('./strats/' + commodity + '_' + date_str + '.pkl', 'wb') as f:
         pickle.dump(net_value_record, f)
         f.close()

@@ -74,6 +74,34 @@ def reversion_strategy(data, spike_record, hold_window=3, initial_cap=1.0, windo
     return pd.Series(net_value, name='net_value')
 
 
+def momentum_strategy(data, spike_record, hold_window=3, initial_cap=1.0, window=3):
+    """
+    Use the reversion strategy, regard the spike as reversion point.
+    :param data: pd.DataFrame, contains EntryPrize(vwap), and has integer index.
+    :param spike_record: Torch.Tensor, shape: (time_stamps, n_neurons, simulation_time)
+    :param hold_window: The length of each holding period.
+    :param initial_cap: Initial capital of the strategy, default 1; each trade invest "initial_cap" money; no leverage.
+    :param window: The window length to determine long or short for the strategy, default 3.
+    :return: The net value series of the strategy, pd.Series.
+    """
+    dataset = add_spike_column(data=data, spike_record=spike_record)
+    tmp = dataset.loc[dataset.spike == 1]
+    net_value = [initial_cap]
+    ret_series = []
+    for i, ind in enumerate(tmp.index):
+        if ind - window < dataset.index[0] or ind + hold_window > dataset.index[-1]:
+            continue
+        flag = dataset.loc[ind - window: ind - 1, 'EntryPrice'].mean() - dataset.loc[ind, 'EntryPrice']
+        pct_chg = dataset.loc[ind+hold_window, 'EntryPrice'] / dataset.loc[ind, 'EntryPrice'] - 1.0
+        if flag < 0:
+            ret_pct = pct_chg
+        else:
+            ret_pct = -1. * pct_chg
+        ret_series.append(ret_pct)
+        net_value.append(net_value[-1] + initial_cap * ret_pct)
+
+    return pd.Series(net_value, name='net_value')
+
 def spike_accuracy(data, spike_record, base_ret, window=3, file_name=None):
     """
     To find the percentage of spikes occurring in reversion and momentum respectively.
@@ -102,14 +130,15 @@ def spike_accuracy(data, spike_record, base_ret, window=3, file_name=None):
         else:
             descending += 1
 
+        if diff1 * diff2 >= 0:
+            reversion_num += 1
+        else:
+            momentum_num += 1
+
         if mean_abs_ret >= base_ret:
             spike_num += 1
-            if diff1 * diff2 >= 0:
-                reversion_num += 1
-            else:
-                momentum_num += 1
 
-    acc = {'reversion_pct': reversion_num / spike_num, 'momentum_pct': momentum_num / spike_num,
+    acc = {'reversion_pct': reversion_num / total_num, 'momentum_pct': momentum_num / total_num,
            'spike_acc': spike_num / total_num, 'total_num': total_num,
            'ascending': ascending / total_num, 'descending': descending / total_num}
     if file_name is not None:
@@ -138,9 +167,12 @@ def plot_result(data, spike_record, n=6, display_time=10, file_name=None, plot_e
         for i, ind in enumerate(tmp.index):
             plot_aspike(data, ind, file_name=directory+'spike'+str(i)+'.png')
 
-    fig, ax = plt.subplots()
-    ax.plot(dataset.index, dataset.EntryPrice)
+    fig, ax = plt.subplots(figsize=(45, 6))
+    ax.plot(dataset.index, dataset.EntryPrice, label='vwap price')
     ax.vlines(tmp.index, tmp.EntryPrice - y_len, tmp.EntryPrice + y_len, color='r')
+    ax.set_xlabel('time stamps')
+    ax.set_ylabel('vwap price')
+    ax.legend()
     if file_name is not None:
         fig.savefig(file_name)
     plt.pause(display_time)
@@ -158,8 +190,11 @@ def plot_aspike(data, spike_index, plot_range=30, display_time=1, file_name=None
     """
     tmp_df = data.loc[(spike_index - plot_range): (spike_index + plot_range), :]
     fig, ax = plt.subplots()
-    ax.plot(tmp_df.index, tmp_df.EntryPrice)
+    ax.plot(tmp_df.index, tmp_df.EntryPrice, label='vwap price')
     ax.vlines(spike_index, tmp_df.EntryPrice.min(), tmp_df.EntryPrice.max(), color='r')
+    ax.set_xlabel('time stamps')
+    ax.set_ylabel('vwap price')
+    ax.legend()
     if file_name is not None:
         fig.savefig(file_name)
     if display_time is not None:
