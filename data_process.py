@@ -65,16 +65,16 @@ class IntradayDataHandle:
 
 
 if __name__ == '__main__':
-    
-    data_path = './data/201705/Trades/CME.20170525-20170526.F.Trades.382.CL.csv.gz'
+    """
+    data_path = './data/201705/Trades/CME.20170504-20170505.F.Trades.382.CL.csv.gz'
     ex = IntradayDataHandle(data_path)
     dominant = ex.dominant
     volume = ex.get_price_series(data_type='volume', length=1000)
     fig, ax = plt.subplots()
     ax.plot(dominant.EntryPrice.iloc[:8000] - 4780)
     # print(dominant.columns)
-    # ax.bar([i for i in range(8000)], ex.dominant.EntrySize.iloc[:8000])
-    plt.pause(10)
+    ax.bar([i for i in range(8000)], ex.dominant.EntrySize.iloc[:8000])
+    plt.pause(5)
     plt.close(fig)
     """
     import os
@@ -95,4 +95,3 @@ if __name__ == '__main__':
         print(date_str, ': ', vol)
         volatility.append(vol)
     print('average volatility: %.4f' % np.mean(volatility))
-    """

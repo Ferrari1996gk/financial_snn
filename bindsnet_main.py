@@ -23,24 +23,24 @@ print_interval = 10; plot = False
 # The parameters to tune.
 window = 1
 n_neurons = 64; test_percent = 0.001; n_total = None
-epoch = 6
-time = 6; dt = 1.0
+epoch = 12
+time = 10; dt = 1.0
 method = "poisson"
 single_in = False
 hidden = 'H' if single_in else 'H1'
 
 # Intra-day high frequency data
 # For data pre-processing
-new_mean = 45
+new_mean = 60
 new_std = 20.0
 # data_path = './data/201705/Trades/CME.20170524-20170525.F.Trades.382.CL.csv.gz'
 
-commodity = 'CL'
+commodity = 'GC'
 directory = './data/201705/Trades/'
 file_list = os.listdir(directory)
 
-# data_list = [x for x in file_list if x[-9:-7] == commodity]
-data_list = ['CME.20170521-20170522.F.Trades.382.CL.csv.gz']
+data_list = [x for x in file_list if x[-9:-7] == commodity]
+# data_list = ['CME.20170524-20170525.F.Trades.382.CL.csv.gz']
 print(data_list)
 
 for file_name in data_list:
@@ -95,7 +95,7 @@ for file_name in data_list:
         middle = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
         print(middle)
         plot_result(data=dominant.iloc[:n_train], spike_record=train_record, display_time=10, file_name='./images/epoch'+str(i)+'.png',
-                    plot_every=True, epoch=i) # Change plot_every
+                    plot_every=False, epoch=i) # Change plot_every
         acc = spike_accuracy(data=dominant.iloc[:n_train], spike_record=train_record, base_ret=quantile, window=3)
         print('Epoch %d, accuracy: ' % i, acc)
         net_value = momentum_strategy(data=dominant.iloc[:n_train], spike_record=train_record, hold_window=3, window=3)
@@ -108,7 +108,7 @@ for file_name in data_list:
         pickle.dump(ex, f_out)
         f_out.close()
 
-
+    """
     # ############# The following is for testing ####################################################
     print('Training finished, begin testing!!!!!!')
     n_test = len(test_data)
@@ -119,8 +119,8 @@ for file_name in data_list:
     acc = spike_accuracy(data=dominant.iloc[n_train: n_train+n_test], spike_record=test_record, base_ret=quantile, window=3)
     print('Testing accuracy: ', acc)
     ex.net_model.network.reset_()
+    """
 
-    # The following is for examining the weights in the network.
     after = ex.net_model.network.connections[(hidden, 'Y')].w.clone().numpy()
     print(after)
     print(before == middle)
